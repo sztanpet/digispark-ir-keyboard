@@ -8,6 +8,7 @@
 *************************************/
 
 //#define DEBUG
+
 #ifdef DEBUG
   #include <DigiUSB.h>
 #else
@@ -31,55 +32,39 @@
 #define STATE_DATA        2
 #define STATE_DATA_READY  3
 
-// timestamp type (for micros())
+// timestamp type (for micros() / millis())
 typedef unsigned long TS;
 typedef uint8_t uint8;
 typedef uint16_t uint16;
 typedef uint32_t uint32;
 
-void setup(void) {
-  attachInterrupt(0, readIR, FALLING);
-
-  pinMode(STATUS_LED, OUTPUT);
-  digitalWrite(STATUS_LED, LOW);
-
-#ifdef DEBUG
-  DigiUSB.begin();
-#else
-  TrinketHidCombo.begin();
-#endif
-}
-
 volatile TS lastRead = 0;
 volatile uint8 pulseNum = 0;
 volatile uint8 data = 0;
 volatile uint8 state = STATE_NEED_START;
-
-void reset(void) {
-  noInterrupts();
-  lastRead = 0;
-  interrupts();
-
-  data = pulseNum = 0;
-  state = STATE_NEED_START;
-
-  digitalWrite(STATUS_LED, LOW);
-}
-
-#ifdef DEBUG
-void handleReceivedData(void) {
-  switch(data) {
-    default:
-      DigiUSB.print("received data: ");
-      DigiUSB.println(data, DEC);
-      DigiUSB.println(pulseNum, DEC);
-      DigiUSB.println(state, DEC);
-      break;
-  }
-}
-#else
 TS lastPress = 0;
-void handleReceivedData(void) {
+
+void reset(void);
+
+void DEFAULT_setupMisc(void);
+void DEBUG_setupMisc(void);
+
+void DEFAULT_loopMisc(void);
+void DEBUG_loopMisc(void);
+
+void DEFAULT_handleReceivedData(void);
+void DEBUG_handleReceivedData(void);
+
+#ifndef DEBUG
+#define setupMisc DEFAULT_setupMisc
+#define loopMisc DEFAULT_loopMisc
+#define handleReceivedData DEFAULT_handleReceivedData
+
+void DEFAULT_setupMisc(void) {
+  TrinketHidCombo.begin();
+}
+
+void DEFAULT_handleReceivedData(void) {
   TS now = millis();
   if (lastPress != 0) {
 
@@ -97,19 +82,58 @@ void handleReceivedData(void) {
   switch(data) {
     case VOL_UP:
       TrinketHidCombo.pressMultimediaKey(MMKEY_VOL_UP);
-      lastPress = now;
       break;
     case VOL_DOWN:
       TrinketHidCombo.pressMultimediaKey(MMKEY_VOL_DOWN);
-      lastPress = now;
       break;
     case MUTE:
       TrinketHidCombo.pressMultimediaKey(MMKEY_MUTE);
-      lastPress = now;
+      break;
+    default:
+      return;
+  }
+
+  lastPress = now;
+}
+
+void DEFAULT_loopMisc(void) {
+  TrinketHidCombo.poll();
+}
+
+#else
+
+  #define setupMisc DEBUG_setupMisc
+  #define loopMisc DEBUG_loopMisc
+  #define handleReceivedData DEBUG_handleReceivedData
+
+void DEBUG_setupMisc(void) {
+  DigiUSB.begin();
+}
+
+void DEBUG_loopMisc(void) {
+  DigiUSB.refresh();
+}
+
+void DEBUG_handleReceivedData(void) {
+  switch(data) {
+    default:
+      DigiUSB.print("received data: ");
+      DigiUSB.println(data, DEC);
+      DigiUSB.println(pulseNum, DEC);
+      DigiUSB.println(state, DEC);
       break;
   }
 }
 #endif
+
+void setup(void) {
+  attachInterrupt(0, readIR, FALLING);
+
+  pinMode(STATUS_LED, OUTPUT);
+  digitalWrite(STATUS_LED, LOW);
+
+  setupMisc();
+}
 
 void loop(void) {
   TS now = micros();
@@ -120,11 +144,7 @@ void loop(void) {
     reset();
   }
 
-#ifdef DEBUG
-  DigiUSB.refresh();
-#else
-  TrinketHidCombo.poll();
-#endif
+  loopMisc();
 }
 
 void readIR(void) {
@@ -149,7 +169,6 @@ void readIR(void) {
       if (lastRead == 0) {
         lastRead = now;
         state = STATE_NEED_START2;
-        digitalWrite(STATUS_LED, HIGH);
         return;
       }
 
@@ -222,4 +241,13 @@ void readIR(void) {
   }
 
   lastRead = now;
+}
+
+void inline reset(void) {
+  noInterrupts();
+  lastRead = 0;
+  interrupts();
+
+  data = pulseNum = 0;
+  state = STATE_NEED_START;
 }
